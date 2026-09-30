@@ -71,41 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (lightbox) lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lightbox && lightbox.classList.contains('open')) closeLightbox(); });
 
-  /* Booking form -> WhatsApp prefill */
-  const bookingForm = document.querySelector('#booking-form');
-  if (bookingForm){
-    bookingForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const data = new FormData(bookingForm);
-      const name = data.get('name') || '';
-      const email = data.get('email') || '';
-      const phone = data.get('phone') || '';
-      const checkin = data.get('checkin') || '';
-      const checkout = data.get('checkout') || '';
-      const guests = data.get('guests') || '1';
-
-      const message =
-`Hello EK Pension, I would like to make a reservation.
-
-Name: ${name}
-Email: ${email}
-Phone: ${phone}
-Check-in: ${checkin}
-Check-out: ${checkout}
-Guests: ${guests}
-
-Please confirm availability. Thank you.`;
-
-      const waNumber = '251921414245';
-      const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
-
-      const successMsg = document.querySelector('.form-success');
-      if (successMsg) successMsg.classList.add('show');
-
-      window.open(waUrl, '_blank');
-    });
-  }
-
   /* Smooth-scroll for same-page anchors when on index */
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', (e) => {

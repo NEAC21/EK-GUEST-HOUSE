@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin - EK Pension</title><meta name="robots" content="noindex">
+<style>
+body{font:15px/1.5 system-ui,sans-serif;margin:0;background:#f6f3ec;color:#14241c}
+main{max-width:1000px;margin:0 auto;padding:20px}
+h1{font-size:22px}h2{font-size:17px;margin:28px 0 10px}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px #0001;overflow-x:auto}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid #ccc;border-radius:8px}
+button{background:#c5691a;color:#fff;border:0;cursor:pointer}button.g{background:#888}button.r{background:#b3261e}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:6px 8px;border-bottom:1px solid #eee;text-align:left;white-space:nowrap}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.tag{padding:2px 8px;border-radius:99px;background:#eee;font-size:12px}
+.paid{background:#d7f0dc}.pending{background:#fff0c2}.needs_refund{background:#f8d0cc}
+</style></head><body><main>
+<h1>EK Pension admin</h1>
+<div id="login" class="card row"><input id="pw" type="password" placeholder="Admin password"><button onclick="login()">Log in</button><span id="lerr" style="color:#b3261e"></span></div>
+<div id="app" hidden>
+  <div class="card"><h2 style="margin-top:0">Rooms, prices and times</h2>
+    <table id="rooms"></table>
+    <div class="row" style="margin-top:12px">Check-in <input id="ci" type="time"> Check-out <input id="co" type="time"><button onclick="saveTimes()">Save times</button></div>
+    <p style="color:#666;font-size:13px">Set price 0 to close a room for online booking. Quantity = how many rooms of that type you have.</p></div>
+  <div class="card"><h2 style="margin-top:0">Add manual reservation (cash / phone)</h2>
+    <div class="row"><input id="mn" placeholder="Guest name"><input id="mp" placeholder="Phone"><select id="mr"></select>
+    <input id="mi" type="date"><input id="mo" type="date"><input id="mt" placeholder="Note (paid cash)"><button onclick="manual()">Reserve</button></div></div>
+  <div class="card"><h2 style="margin-top:0">Bookings</h2><table id="bk"></table></div>
+</div>
+<script>
+let T=sessionStorage.getItem('t');const $=i=>document.getElementById(i);
+async function api(a,d={}){const r=await fetch('/api/admin',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+T},body:JSON.stringify({action:a,...d})});const j=await r.json();if(r.status===401&&a!=='login'){logout();throw 0}if(!r.ok){alert(j.error);throw 0}return j}
+function logout(){sessionStorage.removeItem('t');T=null;$('app').hidden=true;$('login').hidden=false}
+async function login(){try{const j=await api('login',{password:$('pw').value});T=j.token;sessionStorage.setItem('t',T);load()}catch{ $('lerr').textContent='Wrong password'}}
+function draw(d){$('login').hidden=true;$('app').hidden=false;
+$('rooms').innerHTML='<tr><th>Room</th><th>Price / night (ETB)</th><th>Quantity</th><th></th></tr>'+d.rooms.map(r=>`<tr><td>${r.name}</td><td><input id="p${r.id}" type="number" value="${r.price}"></td><td><input id="q${r.id}" type="number" value="${r.quantity}"></td><td><button onclick="saveRoom(${r.id})">Save</button></td></tr>`).join('');
+$('ci').value=d.settings.checkin_time;$('co').value=d.settings.checkout_time;
+$('mr').innerHTML=d.rooms.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+$('bk').innerHTML='<tr><th>Ref</th><th>Guest</th><th>Room</th><th>Stay</th><th>ETB</th><th>Status</th><th></th></tr>'+d.bookings.map(b=>`<tr><td>${b.ref}</td><td>${b.name}<br>${b.phone}</td><td>${b.room}</td><td>${b.checkin} to ${b.checkout}</td><td>${b.amount}</td><td><span class="tag ${b.status}">${b.status}</span>${b.source==='manual'?' <span class="tag">manual</span>':''}<br>${b.note||''}</td><td>${['paid','pending'].includes(b.status)?`<button class="r" onclick="cancel(${b.id},${b.refund_eligible&&b.status==='paid'&&b.source==='online'})">Cancel</button>`:''}</td></tr>`).join('')}
+async function load(){if(T)try{draw(await api('list'))}catch{}}
+async function saveRoom(id){draw(await api('setRoom',{id,price:$('p'+id).value,quantity:$('q'+id).value}))}
+async function saveTimes(){draw(await api('setSettings',{checkin_time:$('ci').value,checkout_time:$('co').value}))}
+async function cancel(id,refund){if(!confirm(refund?'Cancel this booking? It is refund-eligible: issue the refund from your Chapa dashboard.':'Cancel this booking? (No refund, less than 24h to check-in, or not paid online)'))return;draw(await api('cancel',{id}))}
+async function manual(){draw(await api('manual',{name:$('mn').value,phone:$('mp').value,room_id:$('mr').value,checkin:$('mi').value,checkout:$('mo').value,note:$('mt').value}))}
+load();
+</script></main></body></html>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment status - EK Pension</title><meta name="robots" content="noindex">
+<link rel="icon" href="images/logo.jpg"><link rel="stylesheet" href="css/style.css"></head>
+<body><div class="grain"></div>
+<section class="booking section-pad" style="padding-top:160px;"><div class="wrap">
+  <div class="booking-form-card" style="text-align:center;">
+    <h2 id="t">Checking your payment...</h2>
+    <p id="m" style="margin:16px 0 28px;color:var(--ink-soft);"></p>
+    <a href="index.html" class="btn btn-primary">Back to home</a>
+  </div></div></section>
+<script>
+(async () => {
+  const ref = new URLSearchParams(location.search).get('ref');
+  const t = document.getElementById('t'), m = document.getElementById('m');
+  for (let i = 0; i < 6; i++) {
+    const r = await fetch('/api/verify?ref=' + encodeURIComponent(ref || '')); const d = await r.json();
+    if (d.status === 'paid') { t.textContent = 'Booking confirmed!'; m.innerHTML = `Thank you ${d.name}. ${d.room}, ${d.checkin} to ${d.checkout}.<br>Reference: <b>${d.ref}</b>. A confirmation was sent to your email.`; return; }
+    if (d.status === 'needs_refund') { t.textContent = 'Payment received, room unavailable'; m.textContent = 'Your payment arrived after the hold expired and the room was taken. We will refund you in full. Please call +251 921 414 245.'; return; }
+    if (d.status === 'expired' || d.status === 'cancelled') { t.textContent = 'Booking not completed'; m.innerHTML = 'The payment was not received in time, so the room was released. <a href="booking.html"><b>Book again</b></a>.'; return; }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  t.textContent = 'Still processing'; m.textContent = 'We have not received confirmation yet. If you paid, you will get an email shortly, or call +251 921 414 245.';
+})();
+</script></body></html>
