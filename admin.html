@@ -16,12 +16,13 @@ table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:6px 8px;b
 <div id="login" class="card row"><input id="pw" type="password" placeholder="Admin password"><button onclick="login()">Log in</button><span id="lerr" style="color:#b3261e"></span></div>
 <div id="app" hidden>
   <div class="card"><h2 style="margin-top:0">Today <span id="td" style="font-weight:400;color:#666"></span></h2><table id="occ"></table></div>
+  <div class="card"><h2 style="margin-top:0">Calendar</h2><div class="row"><select id="cr" onchange="cal()"></select><button class="g" onclick="mv(-1)">&lt;</button><b id="cmn"></b><button class="g" onclick="mv(1)">&gt;</button><span style="font-size:12px;color:#666">booked / total rooms per night. Green = free, yellow = partly booked, red = full</span></div><table id="cal" style="margin-top:10px;table-layout:fixed"></table></div>
   <div class="card"><h2 style="margin-top:0">Rooms, prices and times</h2>
     <table id="rooms"></table>
     <div class="row" style="margin-top:12px">Check-in <input id="ci" type="time"> Check-out <input id="co" type="time"><button onclick="saveTimes()">Save times</button></div>
-    <p style="color:#666;font-size:13px">Set price 0 to close a room for online booking. Quantity = how many rooms of that type you have.</p></div>
+    <p style="color:#666;font-size:13px">Set price 0 to close a room for online booking. Room numbers: list each room of that type, e.g. 101, 102, 103. Each is a separate room. Set the real numbers before taking bookings.</p></div>
   <div class="card"><h2 style="margin-top:0">Add manual reservation (cash / phone)</h2>
-    <div class="row"><input id="mn" placeholder="Guest name"><input id="mp" placeholder="Phone"><select id="mr"></select>
+    <div class="row"><input id="mn" placeholder="Guest name"><input id="mp" placeholder="Phone"><select id="mr" onchange="fillU()"></select><select id="mu"></select>
     <input id="mi" type="date"><input id="mo" type="date"><input id="mt" placeholder="Note (paid cash)"><button onclick="manual()">Reserve</button></div></div>
   <div class="card"><h2 style="margin-top:0">Bookings</h2><table id="bk"></table></div>
 </div>
@@ -34,18 +35,32 @@ function occ(d){const t=d.today;$('td').textContent=t;const bs=d.bookings;
 $('occ').innerHTML='<tr><th>Room type</th><th>Occupied</th><th>Free</th><th>Arriving today</th><th>Leaving today</th><th>In house</th></tr>'+d.rooms.map(r=>{
 const mine=bs.filter(b=>b.room_id===r.id),paid=mine.filter(b=>b.status==='paid');
 const inn=paid.filter(b=>b.checkin<=t&&b.checkout>t),held=mine.filter(b=>b.status==='pending'&&b.checkin<=t&&b.checkout>t);
-const arr=paid.filter(b=>b.checkin===t),lv=paid.filter(b=>b.checkout===t),nm=a=>a.map(b=>b.name).join(', ')||'-';
+const arr=paid.filter(b=>b.checkin===t),lv=paid.filter(b=>b.checkout===t),nm=a=>a.map(b=>b.name+(b.unit?' ['+b.unit+']':'')).join(', ')||'-';
 const free=r.quantity-inn.length-held.length;
-return `<tr><td>${r.name}</td><td><b>${inn.length}</b> / ${r.quantity}${held.length?` (+${held.length} on hold)`:''}</td><td style="color:${free>0?'#1a7f37':'#b3261e'}"><b>${free}</b></td><td>${nm(arr)}</td><td>${nm(lv)}</td><td>${inn.map(b=>b.name+' (until '+b.checkout+')').join(', ')||'-'}</td></tr>`}).join('')}
-function draw(d){occ(d);$('login').hidden=true;$('app').hidden=false;
-$('rooms').innerHTML='<tr><th>Room</th><th>Price / night (ETB)</th><th>Quantity</th><th></th></tr>'+d.rooms.map(r=>`<tr><td>${r.name}</td><td><input id="p${r.id}" type="number" value="${r.price}"></td><td><input id="q${r.id}" type="number" value="${r.quantity}"></td><td><button onclick="saveRoom(${r.id})">Save</button></td></tr>`).join('');
+return `<tr><td>${r.name}</td><td><b>${inn.length}</b> / ${r.quantity}${held.length?` (+${held.length} on hold)`:''}</td><td style="color:${free>0?'#1a7f37':'#b3261e'}"><b>${free}</b></td><td>${nm(arr)}</td><td>${nm(lv)}</td><td>${inn.map(b=>b.name+(b.unit?' ['+b.unit+']':'')+' (until '+b.checkout+')').join(', ')||'-'}</td></tr>`}).join('')}
+let cm=null,D=null;
+const rn=b=>['paid','pending'].includes(b.status)?`<select id="u${b.id}"><option value="">-</option>${D.units.filter(u=>u.room_id===b.room_id).map(u=>`<option value="${u.id}" ${u.label===b.unit?'selected':''}>${u.label}</option>`).join('')}</select><button class="g" onclick="move(${b.id})">Set</button>`:(b.unit||'-');
+async function edit(id,ci,co){const a=prompt('New check-in (YYYY-MM-DD)',ci);if(!a)return;const b=prompt('New check-out (YYYY-MM-DD)',co);if(!b)return;draw(await api('edit',{id,checkin:a,checkout:b}))}
+function fillU(){$('mu').innerHTML='<option value="">Any free room</option>'+D.units.filter(u=>u.room_id===+$('mr').value).map(u=>`<option value="${u.id}">${u.label}</option>`).join('')}
+async function move(id){const v=$('u'+id).value;if(v)draw(await api('move',{id,unit_id:+v}))}
+function cal(){if(!D)return;cm=cm||D.today.slice(0,7);const rid=+$('cr').value,r=D.rooms.find(x=>x.id===rid);if(!r)return;
+const [y,m]=cm.split('-').map(Number),pad=(new Date(Date.UTC(y,m-1,1)).getUTCDay()+6)%7,days=new Date(Date.UTC(y,m,0)).getUTCDate();
+const bs=D.bookings.filter(b=>b.room_id===rid&&['paid','pending'].includes(b.status));
+let h='<tr>'+['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>`<th>${x}</th>`).join('')+'</tr><tr>'+'<td></td>'.repeat(pad);
+for(let i=1;i<=days;i++){const ds=`${cm}-${String(i).padStart(2,'0')}`,g=bs.filter(b=>b.checkin<=ds&&b.checkout>ds),n=g.length;
+h+=`<td title="${g.map(b=>b.name).join(', ')}" style="text-align:center;background:${n>=r.quantity?'#f8d0cc':n?'#fff0c2':'#e3f4e6'}"><b>${i}</b><br>${n}/${r.quantity}</td>`;
+if((pad+i)%7===0&&i<days)h+='</tr><tr>'}
+$('cal').innerHTML=h+'</tr>';$('cmn').textContent=cm}
+function mv(k){const [y,m]=cm.split('-').map(Number);cm=new Date(Date.UTC(y,m-1+k,1)).toISOString().slice(0,7);cal()}
+function draw(d){D=d;if($('cr').options.length!==d.rooms.length)$('cr').innerHTML=d.rooms.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');cal();occ(d);$('login').hidden=true;$('app').hidden=false;
+$('rooms').innerHTML='<tr><th>Room</th><th>Price / night (ETB)</th><th>Room numbers (comma separated)</th><th></th></tr>'+d.rooms.map(r=>`<tr><td>${r.name}</td><td><input id="p${r.id}" type="number" value="${r.price}"></td><td><input id="l${r.id}" style="width:260px" value="${d.units.filter(u=>u.room_id===r.id).map(u=>u.label).join(', ')}"></td><td><button onclick="saveRoom(${r.id})">Save</button></td></tr>`).join('');
 $('ci').value=d.settings.checkin_time;$('co').value=d.settings.checkout_time;
-$('mr').innerHTML=d.rooms.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
-$('bk').innerHTML='<tr><th>Ref</th><th>Guest</th><th>Room</th><th>Stay</th><th>ETB</th><th>Status</th><th></th></tr>'+d.bookings.map(b=>`<tr><td>${b.ref}</td><td>${b.name}<br>${b.phone}</td><td>${b.room}</td><td>${b.checkin} to ${b.checkout}</td><td>${b.amount}</td><td><span class="tag ${b.status}">${b.status}</span>${b.source==='manual'?' <span class="tag">manual</span>':''}<br>${b.note||''}</td><td>${['paid','pending'].includes(b.status)?`<button class="r" onclick="cancel(${b.id},${b.refund_eligible&&b.status==='paid'&&b.source==='online'})">Cancel</button>`:''}</td></tr>`).join('')}
+$('mr').innerHTML=d.rooms.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');fillU();
+$('bk').innerHTML='<tr><th>Ref</th><th>Guest</th><th>Room</th><th>Room no.</th><th>Stay</th><th>ETB</th><th>Status</th><th></th></tr>'+d.bookings.map(b=>`<tr><td>${b.ref}</td><td>${b.name}<br>${b.phone}</td><td>${b.room}</td><td>${rn(b)}</td><td>${b.checkin} to ${b.checkout}</td><td>${b.amount}</td><td><span class="tag ${b.status}">${b.status}</span>${b.source==='manual'?' <span class="tag">manual</span>':''}<br>${b.note||''}</td><td>${['paid','pending'].includes(b.status)?`<button class="g" onclick="edit(${b.id},'${b.checkin}','${b.checkout}')">Dates</button> <button class="r" onclick="cancel(${b.id},${b.refund_eligible&&b.status==='paid'&&b.source==='online'})">Cancel</button>`:''}</td></tr>`).join('')}
 async function load(){if(T)try{draw(await api('list'))}catch{}}
-async function saveRoom(id){draw(await api('setRoom',{id,price:$('p'+id).value,quantity:$('q'+id).value}))}
+async function saveRoom(id){draw(await api('setRoom',{id,price:$('p'+id).value,labels:$('l'+id).value}))}
 async function saveTimes(){draw(await api('setSettings',{checkin_time:$('ci').value,checkout_time:$('co').value}))}
 async function cancel(id,refund){if(!confirm(refund?'Cancel this booking? It is refund-eligible: issue the refund from your Chapa dashboard.':'Cancel this booking? (No refund, less than 24h to check-in, or not paid online)'))return;draw(await api('cancel',{id}))}
-async function manual(){draw(await api('manual',{name:$('mn').value,phone:$('mp').value,room_id:$('mr').value,checkin:$('mi').value,checkout:$('mo').value,note:$('mt').value}))}
+async function manual(){draw(await api('manual',{name:$('mn').value,phone:$('mp').value,room_id:$('mr').value,unit_id:$('mu').value,checkin:$('mi').value,checkout:$('mo').value,note:$('mt').value}))}
 load();
 </script></main></body></html>

@@ -13,20 +13,37 @@ async function init() {
     await q(`CREATE TABLE IF NOT EXISTS rooms(id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, price INT NOT NULL DEFAULT 0, quantity INT NOT NULL DEFAULT 1)`);
     await q(`CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)`);
     await q(`CREATE TABLE IF NOT EXISTS bookings(id SERIAL PRIMARY KEY, ref TEXT UNIQUE NOT NULL, room_id INT REFERENCES rooms(id), name TEXT, email TEXT, phone TEXT, checkin DATE, checkout DATE, guests TEXT, amount INT, status TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'online', note TEXT, created_at TIMESTAMPTZ DEFAULT now(), paid_at TIMESTAMPTZ)`);
+    await q(`CREATE TABLE IF NOT EXISTS hits(k TEXT, at TIMESTAMPTZ DEFAULT now())`);
     await q(`INSERT INTO rooms(name) VALUES ('Standard'),('Deluxe'),('Cozy Double'),('Connected Family') ON CONFLICT DO NOTHING`);
     await q(`INSERT INTO settings VALUES ('checkin_time','14:00'),('checkout_time','11:00') ON CONFLICT DO NOTHING`);
+    await q(`CREATE TABLE IF NOT EXISTS units(id SERIAL PRIMARY KEY, room_id INT REFERENCES rooms(id), label TEXT NOT NULL, UNIQUE(room_id,label))`);
+    await q(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_id INT REFERENCES units(id)`);
+    await q(`INSERT INTO units(room_id,label) SELECT r.id, r.name||' '||g FROM rooms r, generate_series(1, GREATEST(r.quantity,1)) g WHERE NOT EXISTS (SELECT 1 FROM units u WHERE u.room_id=r.id)`);
+    await q(`UPDATE rooms SET quantity=(SELECT count(*) FROM units WHERE room_id=rooms.id)`);
+    const legacy = (await q(`SELECT b.id, b.room_id, b.checkin, b.checkout FROM bookings b WHERE b.unit_id IS NULL AND ${ACTIVE} ORDER BY b.checkin`)).rows;
+    for (const b of legacy) { const u = await pickUnit(db(), b.room_id, b.checkin, b.checkout); if (u) await q('UPDATE bookings SET unit_id=$2 WHERE id=$1', [b.id, u]); }
   })().catch(e => { ready = null; throw e; });
   return ready;
 }
 
 // pending bookings older than HOLD minutes are reported as 'expired'
-const BSEL = `SELECT b.*, r.name AS room, CASE WHEN b.status='pending' AND b.created_at < now() - interval '${HOLD} minutes' THEN 'expired' ELSE b.status END AS status
-  FROM bookings b JOIN rooms r ON r.id=b.room_id`;
+const BSEL = `SELECT b.*, r.name AS room, un.label AS unit, CASE WHEN b.status='pending' AND b.created_at < now() - interval '${HOLD} minutes' THEN 'expired' ELSE b.status END AS status
+  FROM bookings b JOIN rooms r ON r.id=b.room_id LEFT JOIN units un ON un.id=b.unit_id`;
 const ACTIVE = `(b.status='paid' OR (b.status='pending' AND b.created_at > now() - interval '${HOLD} minutes'))`;
 
 async function freeRooms(c, roomId, cin, cout) {
-  const r = await c.query(`SELECT quantity - (SELECT count(*) FROM bookings b WHERE b.room_id=rooms.id AND ${ACTIVE} AND b.checkin < $3 AND b.checkout > $2) AS free FROM rooms WHERE id=$1`, [roomId, cin, cout]);
-  return r.rows[0] ? Number(r.rows[0].free) : 0;
+  const r = await c.query(`SELECT count(*) AS n FROM units u WHERE u.room_id=$1 AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.unit_id=u.id AND ${ACTIVE} AND b.checkin < $3 AND b.checkout > $2)`, [roomId, cin, cout]);
+  return Number(r.rows[0].n);
+}
+// picks the free room number whose previous guest leaves closest to this check-in (keeps gaps small)
+async function pickUnit(c, roomId, cin, cout) {
+  const r = await c.query(`SELECT u.id FROM units u WHERE u.room_id=$1 AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.unit_id=u.id AND ${ACTIVE} AND b.checkin < $3 AND b.checkout > $2)
+    ORDER BY (SELECT max(b.checkout) FROM bookings b WHERE b.unit_id=u.id AND ${ACTIVE} AND b.checkout <= $2) DESC NULLS LAST, u.label LIMIT 1`, [roomId, cin, cout]);
+  return r.rows[0] && r.rows[0].id;
+}
+async function pickSpecific(c, unitId, roomId, cin, cout) {
+  const r = await c.query(`SELECT u.id FROM units u WHERE u.id=$1 AND u.room_id=$2 AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.unit_id=u.id AND ${ACTIVE} AND b.checkin < $4 AND b.checkout > $3)`, [unitId, roomId, cin, cout]);
+  return r.rows[0] && r.rows[0].id;
 }
 
 // Creates a booking only if a room is free (locked per room to prevent double booking)
@@ -35,11 +52,12 @@ async function createBooking(b, status) {
   try {
     await c.query('BEGIN');
     await c.query('SELECT pg_advisory_xact_lock($1)', [b.room_id]);
-    if ((await freeRooms(c, b.room_id, b.checkin, b.checkout)) < 1) { await c.query('ROLLBACK'); return null; }
+    const unit = b.unit_id ? await pickSpecific(c, b.unit_id, b.room_id, b.checkin, b.checkout) : await pickUnit(c, b.room_id, b.checkin, b.checkout);
+    if (!unit) { await c.query('ROLLBACK'); return null; }
     const r = await c.query(
-      `INSERT INTO bookings(ref,room_id,name,email,phone,checkin,checkout,guests,amount,status,source,note,paid_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $10='paid' THEN now() END) RETURNING id`,
-      [b.ref, b.room_id, b.name, b.email, b.phone, b.checkin, b.checkout, b.guests, b.amount, status, b.source || 'online', b.note || null]);
+      `INSERT INTO bookings(ref,room_id,name,email,phone,checkin,checkout,guests,amount,status,source,note,paid_at,unit_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $10='paid' THEN now() END,$13) RETURNING id`,
+      [b.ref, b.room_id, b.name, b.email, b.phone, b.checkin, b.checkout, b.guests, b.amount, status, b.source || 'online', b.note || null, unit]);
     await c.query('COMMIT');
     return r.rows[0].id;
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { c.release(); }
@@ -57,9 +75,9 @@ async function confirmPayment(ref) {
   const res = await fetch(`https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(ref)}`, { headers: { Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}` } });
   const j = await res.json().catch(() => ({}));
   if (!(j.status === 'success' && j.data && j.data.status === 'success' && Number(j.data.amount) >= b.amount)) return b;
-  let status = 'paid';
-  if (b.status === 'expired' && (await freeRooms(db(), b.room_id, b.checkin, b.checkout)) < 1) status = 'needs_refund';
-  const u = await db().query(`UPDATE bookings SET status=$2, paid_at=now() WHERE ref=$1 AND status='pending' RETURNING id`, [ref, status]);
+  let status = 'paid', unit = null;
+  if (b.status === 'expired') { unit = await pickUnit(db(), b.room_id, b.checkin, b.checkout); if (!unit) status = 'needs_refund'; }
+  const u = await db().query(`UPDATE bookings SET status=$2, paid_at=now(), unit_id=COALESCE($3, unit_id) WHERE ref=$1 AND status='pending' RETURNING id`, [ref, status, unit]);
   const nb = await getByRef(ref);
   if (u.rowCount) await notify(nb, status === 'paid' ? 'paid' : 'conflict');
   return nb;
@@ -113,9 +131,17 @@ const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/A
 const nightsBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const validDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
 const newRef = () => 'EK-' + crypto.randomBytes(5).toString('hex').toUpperCase();
+async function limited(req, name, max, mins) { // simple per-IP rate limit stored in the DB
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'x', k = name + ':' + ip;
+  await db().query(`DELETE FROM hits WHERE at < now() - interval '1 day'`);
+  const n = (await db().query(`SELECT count(*) FROM hits WHERE k=$1 AND at > now() - ($2 || ' minutes')::interval`, [k, String(mins)])).rows[0].count;
+  if (Number(n) >= max) return true;
+  await db().query('INSERT INTO hits(k) VALUES($1)', [k]);
+  return false;
+}
 const handler = fn => async (req, res) => {
   try { await init(); await fn(req, res); }
   catch (e) { console.error(e); res.status(500).json({ error: 'Server error. Please try again or call us.' }); }
 };
 
-module.exports = { db, init, BSEL, freeRooms, createBooking, getByRef, confirmPayment, notify, isAdmin, makeToken, today, nightsBetween, validDate, newRef, handler, HOLD, money };
+module.exports = { db, init, BSEL, freeRooms, createBooking, getByRef, confirmPayment, notify, isAdmin, makeToken, today, nightsBetween, validDate, newRef, handler, HOLD, money, limited, mail, whatsapp, ACTIVE };
