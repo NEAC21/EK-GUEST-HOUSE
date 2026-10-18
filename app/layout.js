@@ -2,6 +2,7 @@ import './globals.css';
 import { AppProvider } from '@/components/AppProvider';
 import { getSettings, DEFAULTS } from '@/lib/settings';
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 const color = (c, f) => (/^#[0-9a-fA-F]{6}$/.test(c) ? c : f);
 async function load() { try { return await getSettings(); } catch { return DEFAULTS; } }
 export async function generateMetadata() { const s = await load(); return { title: s.name, description: s.tagline }; }

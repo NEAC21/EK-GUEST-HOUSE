@@ -17,7 +17,7 @@ export default function StaffShell({ roles, children }) {
         <nav>
           <Link href="/reception">Reception</Link>
           {s.role === 'admin' && <Link href="/admin">Admin</Link>}
-          <Link href="/">Website</Link>
+          <a href="/">Website</a>
           <span style={{ opacity: .8 }}>{s.name}</span>
           <button className="btn sm gold" onClick={out}>Sign out</button>
         </nav>

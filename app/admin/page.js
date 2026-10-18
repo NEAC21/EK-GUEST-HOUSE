@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import StaffShell from '@/components/StaffShell';
 import { api, money, fmtDate, compressImage } from '@/lib/client';
 
@@ -161,13 +162,14 @@ function SField({ s, set, k, label, type = 'text', ...p }) {
 }
 
 function Settings() {
+  const router = useRouter();
   const [s, setS] = useState(null), [msg, setMsg] = useState(''), [err, setErr] = useState('');
   useEffect(() => { api('/api/settings').then(setS).catch((e) => setErr(e.message)); }, []);
   if (!s) return <p>{err || 'Loading…'}</p>;
   const set = (k) => (e) => setS({ ...s, [k]: e.target.value });
   const save = async (e) => {
     e.preventDefault(); setErr(''); setMsg('');
-    try { await api('/api/admin/settings', { method: 'PUT', body: s }); setMsg('Saved. Reload the website to see the changes.'); } catch (x) { setErr(x.message); }
+    try { await api('/api/admin/settings', { method: 'PUT', body: s }); setMsg('Saved. Open the website to see the changes.'); router.refresh(); } catch (x) { setErr(x.message); }
   };
   return (
     <form className="card" onSubmit={save}>
