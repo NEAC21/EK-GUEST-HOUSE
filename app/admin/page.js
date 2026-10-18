@@ -175,7 +175,7 @@ function Settings() {
     <form className="card" onSubmit={save}>
       <h3 style={{ marginBottom: 14 }}>Guest house</h3>
       <div className="grid2"><SField s={s} set={set} k="name" label="Name" required /><SField s={s} set={set} k="tagline" label="Tagline" /><SField s={s} set={set} k="phone" label="Phone (shown on the site, used for Call to book)" /><SField s={s} set={set} k="email" label="Contact email" /></div>
-      <SField s={s} set={set} k="address" label="Address" /><SField s={s} set={set} k="map_url" label="Google Maps embed link (Share → Embed a map → copy the src address)" />
+      <SField s={s} set={set} k="address" label="Address" /><SField s={s} set={set} k="map_url" label="Map: paste the coordinates (example 8.7500, 38.9800) or a Google Maps link. Empty = map from the address" />
       <div className="field"><label>Home page photo</label><Photos value={s.hero_image ? [s.hero_image] : []} folder="site" single onChange={(a) => setS({ ...s, hero_image: a[0] || '' })} /></div>
       <h3 style={{ margin: '18px 0 14px' }}>Look</h3>
       <div className="grid2"><SField s={s} set={set} k="brand_color" label="Main color" type="color" /><SField s={s} set={set} k="accent_color" label="Accent color" type="color" /></div>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/components/AppProvider';
 import { api, todayStr, addDays } from '@/lib/client';
+import { parseMap } from '@/lib/map';
 
 function Gallery({ photos, alt, empty }) {
   const [i, setI] = useState(0);
@@ -26,6 +27,7 @@ export default function Home() {
   const [inD, setIn] = useState(''), [outD, setOut] = useState(''), [guests, setGuests] = useState(2);
   const [types, setTypes] = useState(null), [searched, setSearched] = useState(false), [err, setErr] = useState('');
   const today = todayStr();
+  const map = parseMap(settings.map_url, settings.address);
   const load = async (q = '') => { try { setTypes((await api('/api/availability' + q)).types); } catch (e) { setErr(e.message); } };
   useEffect(() => { load(); }, []);
   const search = async (e) => {
@@ -97,7 +99,11 @@ export default function Home() {
               {settings.email && <p><a href={`mailto:${settings.email}`}>{settings.email}</a></p>}
               <p className="note">{settings.check_in_time} / {settings.check_out_time}</p>
             </div>
-            {settings.map_url && <iframe src={settings.map_url} loading="lazy" title="Map" />}
+            {map && (
+              <div>
+                {map.embed && <iframe src={map.embed} loading="lazy" title="Map" />}
+                {map.open && <p><a className="btn ghost" href={map.open} target="_blank" rel="noopener noreferrer">{t('directions')}</a></p>}
+              </div>)}
           </div>
         </section>
       </div>
