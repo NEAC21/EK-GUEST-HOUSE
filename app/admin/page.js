@@ -156,6 +156,10 @@ function Rooms() {
   );
 }
 
+function SField({ s, set, k, label, type = 'text', ...p }) {
+  return <div className="field"><label>{label}</label><input type={type} value={s[k] ?? ''} onChange={set(k)} {...p} /></div>;
+}
+
 function Settings() {
   const [s, setS] = useState(null), [msg, setMsg] = useState(''), [err, setErr] = useState('');
   useEffect(() => { api('/api/settings').then(setS).catch((e) => setErr(e.message)); }, []);
@@ -165,21 +169,20 @@ function Settings() {
     e.preventDefault(); setErr(''); setMsg('');
     try { await api('/api/admin/settings', { method: 'PUT', body: s }); setMsg('Saved. Reload the website to see the changes.'); } catch (x) { setErr(x.message); }
   };
-  const F = ({ k, label, type = 'text', ...p }) => <div className="field"><label>{label}</label><input type={type} value={s[k] ?? ''} onChange={set(k)} {...p} /></div>;
   return (
     <form className="card" onSubmit={save}>
       <h3 style={{ marginBottom: 14 }}>Guest house</h3>
-      <div className="grid2"><F k="name" label="Name" required /><F k="tagline" label="Tagline" /><F k="phone" label="Phone (shown on the site, used for Call to book)" /><F k="email" label="Contact email" /></div>
-      <F k="address" label="Address" /><F k="map_url" label="Google Maps embed link (Share → Embed a map → copy the src address)" />
+      <div className="grid2"><SField s={s} set={set} k="name" label="Name" required /><SField s={s} set={set} k="tagline" label="Tagline" /><SField s={s} set={set} k="phone" label="Phone (shown on the site, used for Call to book)" /><SField s={s} set={set} k="email" label="Contact email" /></div>
+      <SField s={s} set={set} k="address" label="Address" /><SField s={s} set={set} k="map_url" label="Google Maps embed link (Share → Embed a map → copy the src address)" />
       <div className="field"><label>Home page photo</label><Photos value={s.hero_image ? [s.hero_image] : []} folder="site" single onChange={(a) => setS({ ...s, hero_image: a[0] || '' })} /></div>
       <h3 style={{ margin: '18px 0 14px' }}>Look</h3>
-      <div className="grid2"><F k="brand_color" label="Main color" type="color" /><F k="accent_color" label="Accent color" type="color" /></div>
+      <div className="grid2"><SField s={s} set={set} k="brand_color" label="Main color" type="color" /><SField s={s} set={set} k="accent_color" label="Accent color" type="color" /></div>
       <h3 style={{ margin: '18px 0 14px' }}>Stay and payment rules</h3>
       <div className="grid2">
-        <F k="check_in_time" label="Check-in time" type="time" /><F k="check_out_time" label="Check-out time" type="time" />
-        <F k="hold_minutes" label="Minutes to hold an unpaid room" type="number" min="1" max="60" />
-        <F k="refund_percent" label="Refund percent" type="number" min="0" max="100" />
-        <F k="refund_hours" label="Refund only if cancelled this many hours before check-in" type="number" min="0" />
+        <SField s={s} set={set} k="check_in_time" label="Check-in time" type="time" /><SField s={s} set={set} k="check_out_time" label="Check-out time" type="time" />
+        <SField s={s} set={set} k="hold_minutes" label="Minutes to hold an unpaid room" type="number" min="1" max="60" />
+        <SField s={s} set={set} k="refund_percent" label="Refund percent" type="number" min="0" max="100" />
+        <SField s={s} set={set} k="refund_hours" label="Refund only if cancelled this many hours before check-in" type="number" min="0" />
       </div>
       {err && <p className="err">{err}</p>}{msg && <p className="ok">{msg}</p>}
       <button className="btn gold">Save settings</button>

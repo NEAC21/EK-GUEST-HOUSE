@@ -1,60 +1,106 @@
 'use client';
-import { Suspense, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/components/AppProvider';
-import { api, fmtDate } from '@/lib/client';
+import { api, todayStr, addDays } from '@/lib/client';
 
-function Inner() {
-  const { ref } = useParams(); const sp = useSearchParams();
-  const { t, tr, settings } = useApp();
-  const email = sp.get('e') || '';
-  const [b, setB] = useState(null), [err, setErr] = useState(''), [msg, setMsg] = useState(''), [now, setNow] = useState(Date.now());
-  const fetchIt = async () => {
-    if (!email) return;
-    try { const d = await api(`/api/bookings/lookup?ref=${encodeURIComponent(ref)}&email=${encodeURIComponent(email)}`); setB({ ...d.booking, _at: Date.now() }); setErr(''); }
-    catch (e) { setErr(e.status === 404 ? t('not_found') : e.message); }
-  };
-  useEffect(() => { fetchIt(); }, []);
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
-  useEffect(() => { if (b?.status === 'pending') { const id = setInterval(fetchIt, 5000); return () => clearInterval(id); } }, [b?.status]);
-
-  const cancel = async () => {
-    const p = b.refund_preview;
-    const q = p?.eligible ? t('cancel_ask_refund', { amount: p.amount, p: p.percent }) : t('cancel_ask_none', { h: settings.refund_hours });
-    if (!window.confirm(q)) return;
-    try { const d = await api('/api/bookings/cancel', { method: 'POST', body: { ref, email } }); setMsg(t('cancelled_done') + (d.refund_amount > 0 ? ' ' + t('refund_due', { amount: d.refund_amount }) : '')); fetchIt(); }
-    catch (e) { setErr(e.message); }
-  };
-  if (!email) return <div className="wrap pad"><p>{t('not_found')}</p></div>;
-  if (err && !b) return <div className="wrap pad"><p className="err">{err}</p></div>;
-  if (!b) return <div className="wrap pad"><p>{t('verifying')}</p></div>;
-  const left = Math.max(0, b.hold_seconds_left - Math.floor((now - b._at) / 1000));
-  const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+function Gallery({ photos, alt, empty }) {
+  const [i, setI] = useState(0);
+  if (!photos?.length) return <div className="ph" title={empty}>{(alt || '?')[0]}</div>;
   return (
-    <div className="wrap" style={{ paddingTop: 40, maxWidth: 640 }}>
-      <div className="card">
-        <span className={'status ' + b.status}>{t('status_' + b.status)}</span>
-        <h2 style={{ margin: '14px 0 4px' }}>{tr(b.room_type_name)}</h2>
-        <p className="muted" style={{ marginTop: 0 }}>{t('reference')}: <b>{b.reference}</b></p>
-        <dl className="sum">
-          <dt>{t('check_in')}</dt><dd>{fmtDate(b.check_in)} · {settings.check_in_time}</dd>
-          <dt>{t('check_out')}</dt><dd>{fmtDate(b.check_out)} · {settings.check_out_time}</dd>
-          <dt>{t('guests')}</dt><dd>{b.guests}</dd>
-          <dt>{t('total')}</dt><dd>{Number(b.total).toLocaleString()} ETB</dd>
-        </dl>
-        {b.status === 'pending' && left > 0 && <>
-          <p><b>{t('time_left', { t: mm })}</b></p>
-          {b.checkout_url && <a className="btn gold" href={b.checkout_url}>{t('continue_payment')}</a>}
-          <p className="note">{t('verifying')}</p>
-        </>}
-        {b.status === 'confirmed' && <p className="note">{t('policy', { h: settings.refund_hours, p: settings.refund_percent })}</p>}
-        {b.refund_status !== 'none' && Number(b.refund_amount) > 0 && <p className="ok">{t('refund_due', { amount: Number(b.refund_amount).toLocaleString() })}</p>}
-        {b.can_cancel && <button className="btn danger" onClick={cancel}>{t('cancel_booking')}</button>}
-        {msg && <p className="ok">{msg}</p>}
-        {err && <p className="err">{err}</p>}
-        {settings.phone && <p className="note" style={{ marginTop: 18 }}>{settings.phone}</p>}
-      </div>
+    <div className="gal">
+      <img src={photos[i]} alt={alt} loading="lazy" />
+      {photos.length > 1 && (
+        <div className="thumbs">
+          {photos.map((p, k) => (
+            <button key={p} className={k === i ? 'on' : ''} onClick={() => setI(k)} aria-label={`Photo ${k + 1}`}><img src={p} alt="" /></button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-export default function Page() { return <Suspense fallback={<div className="wrap pad">…</div>}><Inner /></Suspense>; }
+
+export default function Home() {
+  const { t, tr, settings } = useApp();
+  const [inD, setIn] = useState(''), [outD, setOut] = useState(''), [guests, setGuests] = useState(2);
+  const [types, setTypes] = useState(null), [searched, setSearched] = useState(false), [err, setErr] = useState('');
+  const today = todayStr();
+  const load = async (q = '') => { try { setTypes((await api('/api/availability' + q)).types); } catch (e) { setErr(e.message); } };
+  useEffect(() => { load(); }, []);
+  const search = async (e) => {
+    e.preventDefault(); setErr('');
+    if (!inD || !outD || outD <= inD) { setErr(t('pick_dates')); return; }
+    await load(`?in=${inD}&out=${outD}&guests=${guests}`); setSearched(true);
+    document.getElementById('rooms')?.scrollIntoView({ behavior: 'smooth' });
+  };
+  const onIn = (v) => { setIn(v); if (!outD || outD <= v) setOut(addDays(v, 1)); };
+  const bg = settings.hero_image ? { backgroundImage: `url(${settings.hero_image})` } : undefined;
+
+  return (
+    <>
+      <section className="hero" style={bg}>
+        <div className="wrap">
+          <h1>{settings.name}</h1>
+          <p>{settings.tagline}</p>
+          <form className="dock" onSubmit={search}>
+            <div><label htmlFor="ci">{t('check_in')}</label><input id="ci" type="date" min={today} value={inD} onChange={(e) => onIn(e.target.value)} /></div>
+            <div><label htmlFor="co">{t('check_out')}</label><input id="co" type="date" min={inD ? addDays(inD, 1) : today} value={outD} onChange={(e) => setOut(e.target.value)} /></div>
+            <div><label htmlFor="gs">{t('guests')}</label>
+              <select id="gs" value={guests} onChange={(e) => setGuests(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6].map((n) => <option key={n}>{n}</option>)}</select></div>
+            <button className="btn gold">{t('search')}</button>
+          </form>
+        </div>
+      </section>
+      <div className="dock-gap" />
+      <div className="wrap">
+        {err && <p className="err">{err}</p>}
+        <section id="rooms" className="sec" style={{ paddingTop: 24 }}>
+          <h2>{t('rooms_title')}</h2>
+          {!types && <p className="muted">{t('loading')}</p>}
+          {types && searched && !types.some((x) => x.available > 0) && <p>{t('no_rooms')}</p>}
+          <div className="rooms">
+            {(types || []).map((r) => {
+              const n = r.available;
+              const q = `?type=${r.id}&in=${inD}&out=${outD}&guests=${guests}`;
+              return (
+                <article className="room" key={r.id}>
+                  <Gallery photos={r.photos} alt={tr(r.name)} empty={t('no_photo')} />
+                  <div className="body">
+                    <h3>{tr(r.name)}</h3>
+                    <p className="muted" style={{ margin: 0 }}>{tr(r.description)}</p>
+                    <div className="chips">
+                      <span className="chip">{t('capacity', { n: r.capacity })}</span>
+                      {(r.amenities || []).map((a) => <span className="chip" key={a}>{a}</span>)}
+                    </div>
+                    <div className="row">
+                      <div className="price"><small>{t('from')} </small>{Number(r.price_per_night).toLocaleString()} ETB <small>{t('per_night')}</small></div>
+                      {searched && n !== null && (n > 0
+                        ? <span className={'tag' + (n <= 2 ? ' low' : '')}>{t('left', { n })}</span>
+                        : <span className="tag out">{t('sold_out')}</span>)}
+                    </div>
+                    {searched && n > 0
+                      ? <Link className="btn" href={'/book' + q}>{t('book_now')}</Link>
+                      : !searched ? <a className="btn ghost" href="#top" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); document.getElementById('ci')?.focus(); }}>{t('pick_dates')}</a> : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+        <section id="contact" className="sec">
+          <h2>{t('contact_title')}</h2>
+          <div className="contact">
+            <div className="card">
+              {settings.address && <p style={{ marginTop: 0 }}>{settings.address}</p>}
+              {settings.phone && <p><a className="btn gold" href={`tel:${settings.phone}`}>{t('call_us')}: {settings.phone}</a></p>}
+              {settings.email && <p><a href={`mailto:${settings.email}`}>{settings.email}</a></p>}
+              <p className="note">{settings.check_in_time} / {settings.check_out_time}</p>
+            </div>
+            {settings.map_url && <iframe src={settings.map_url} loading="lazy" title="Map" />}
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
