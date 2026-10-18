@@ -3,6 +3,7 @@ import { db } from '@/lib/supabase';
 import { getSettings } from '@/lib/settings';
 import { expireHolds, refundFor } from '@/lib/booking';
 import { settleBooking } from '@/lib/payments';
+import { makeCode } from '@/lib/qr';
 export const dynamic = 'force-dynamic';
 const load = async (ref) => (await db().from('bookings').select('*, room_types(name)').eq('reference', ref).maybeSingle()).data;
 export const GET = handle(async (req) => {
@@ -18,7 +19,7 @@ export const GET = handle(async (req) => {
   const holdLeft = b.status === 'pending' && b.hold_expires_at ? Math.max(0, Math.floor((Date.parse(b.hold_expires_at) - Date.now()) / 1000)) : 0;
   return json({
     booking: {
-      reference: b.reference, status: b.status, guest_name: b.guest_name, check_in: b.check_in, check_out: b.check_out,
+      reference: b.reference, status: b.status, qr_code: b.status === 'confirmed' ? makeCode(b.reference) : null, guest_name: b.guest_name, check_in: b.check_in, check_out: b.check_out,
       nights: b.nights, guests: b.guests, total: b.total, room_type_name: b.room_types?.name,
       hold_seconds_left: holdLeft, checkout_url: holdLeft > 0 ? b.checkout_url : null,
       refund_amount: b.refund_amount, refund_status: b.refund_status,

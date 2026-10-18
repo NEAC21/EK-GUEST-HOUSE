@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import StaffShell from '@/components/StaffShell';
+import QrScanner from '@/components/QrScanner';
 import { api, money, fmtDate, addDays, todayStr } from '@/lib/client';
 
 const METHODS = [['cash', 'Cash'], ['telebirr', 'Telebirr'], ['bank_transfer', 'Bank transfer'], ['pos', 'POS card'], ['pay_at_checkin', 'Pay at check-in']];
@@ -12,6 +13,7 @@ function Desk({ staff }) {
   const [ov, setOv] = useState(null), [from, setFrom] = useState(todayStr()), [err, setErr] = useState('');
   const [ci, setCi] = useState(todayStr()), [co, setCo] = useState(addDays(todayStr(), 1)), [free, setFree] = useState(null);
   const [draft, setDraft] = useState(null), [sel, setSel] = useState(null);
+  const [scan, setScan] = useState(false), [code, setCode] = useState(''), [vr, setVr] = useState(null);
   const load = useCallback(async () => { try { setOv(await api(`/api/staff/overview?from=${from}&days=14`)); } catch (e) { setErr(e.message); } }, [from]);
   useEffect(() => { load(); }, [load]);
   const check = async (e) => {
@@ -29,6 +31,10 @@ function Desk({ staff }) {
     try { await api(`/api/staff/bookings/${b.id}`, { method: 'PATCH', body: { action, refundAmount } }); setSel(null); load(); if (free) check(); }
     catch (x) { setErr(x.message); }
   };
+  const verify = async (c) => {
+    setErr(''); setVr(null);
+    try { setVr(await api('/api/staff/verify', { method: 'POST', body: { code: c } })); } catch (x) { setErr(x.message); }
+  };
   const days = Array.from({ length: 14 }, (_, i) => addDays(from, i));
   const cell = (room, day) => ov.bookings.find((b) => b.room_id === room.id && b.check_in <= day && day < b.check_out);
   const List = ({ rows, action, label }) => rows.length === 0 ? <p className="muted">Nobody today.</p> : (
@@ -41,6 +47,36 @@ function Desk({ staff }) {
   return (
     <>
       {err && <p className="err">{err}</p>}
+      <h2 style={{ marginTop: 4 }}>Verify guest QR code</h2>
+      <form className="inline" onSubmit={(e) => { e.preventDefault(); if (code.trim()) verify(code.trim()); }}>
+        <button type="button" className="btn gold" onClick={() => setScan(true)}>Scan QR with camera</button>
+        <div className="field" style={{ flex: 2 }}><label>Or type the code or booking reference</label><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="EK1A2B3C4D.xxxxxxxxxxxx" autoCapitalize="characters" /></div>
+        <button className="btn">Verify</button>
+      </form>
+      {vr && (() => {
+        const tone = vr.verdict === 'ok' ? 'var(--ok)' : vr.verdict === 'early' ? 'var(--warn)' : 'var(--danger)';
+        const b = vr.booking;
+        return (
+          <div className="card" style={{ borderColor: tone, borderWidth: 2, marginTop: 12 }}>
+            <h3 style={{ color: tone }}>{vr.verdict === 'ok' ? '✔ ' : vr.verdict === 'early' ? '! ' : '✖ '}{vr.message}</h3>
+            {b && <>
+              <p style={{ margin: '12px 0 4px' }}><b style={{ fontSize: 20 }}>{b.guest_name}</b> · {b.guest_phone}</p>
+              <p className="muted" style={{ margin: 0 }}>{b.reference} · Room <b>{b.rooms?.number}</b> ({b.room_types?.name?.en}) · {b.guests} guest(s)</p>
+              <p>{fmtDate(b.check_in)} → {fmtDate(b.check_out)} · {b.nights} night(s)</p>
+              <p>{b.payment_method === 'pay_at_checkin' ? <b style={{ color: 'var(--warn)' }}>Collect {money(b.total)} from the guest now</b> : <>Paid {money(b.total)} ({(b.payment_method || '').replace('_', ' ')})</>}</p>
+              {vr.manual && <p className="note">Typed by hand, not scanned.</p>}
+            </>}
+            <div className="pillrow">
+              {b && b.status === 'confirmed' && ['ok', 'early'].includes(vr.verdict) && (
+                <button className="btn gold" onClick={async () => {
+                  if (vr.verdict === 'early' && !window.confirm('The check-in date is not today. Check in anyway?')) return;
+                  await act(b, 'check_in'); verify(code || b.reference);
+                }}>{vr.verdict === 'early' ? 'Check in anyway' : 'Check in guest'}</button>)}
+              <button className="btn ghost" onClick={() => { setVr(null); setCode(''); }}>Clear</button>
+            </div>
+          </div>);
+      })()}
+
       {!ov ? <p>Loading…</p> : <>
         <h2>Today · {fmtDate(ov.today)}</h2>
         <div className="grid2" style={{ alignItems: 'start' }}>
@@ -79,6 +115,7 @@ function Desk({ staff }) {
         </tbody></table></div>
       </>}
 
+      {scan && <QrScanner onCode={(c) => { setScan(false); setCode(c); verify(c); }} onClose={() => setScan(false)} />}
       {draft && <BookForm draft={draft} staff={staff} onClose={() => setDraft(null)} onSaved={() => { setDraft(null); load(); if (free) check(); }} />}
       {sel && (
         <div className="modal" onClick={() => setSel(null)}><div className="card" onClick={(e) => e.stopPropagation()}>

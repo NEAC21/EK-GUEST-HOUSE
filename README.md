@@ -42,3 +42,10 @@ Open http://localhost:3000/staff/login, sign in, then in **Admin**:
 - Cancel: 80% refund if at least 48 hours before check-in (admin can change). Refunds are paid by the guest house outside Chapa; the admin marks them paid in **Admin → Bookings**.
 - Reception payments: cash, Telebirr, bank transfer, POS or pay at check-in, with a receipt number.
 - Emails are sent with Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Without a key, bookings still work and no email is sent.
+
+## Check-in QR code
+- After payment the guest gets a QR code on their booking page and in the confirmation email.
+- At reception: open `/reception` → **Verify guest QR code** → **Scan QR with camera** (the browser asks for camera permission; HTTPS is required, Vercel has it). The screen turns green when the booking is valid and paid, amber for a wrong date, red for cancelled, unpaid or fake codes. Press **Check in guest** to finish.
+- If the camera is not available, type the code or the booking reference and press **Verify**.
+- The code is signed with `JWT_SECRET`. If you change `JWT_SECRET`, old QR codes stop working, so keep it the same.
+- After updating the code, run `npm install` (new packages: `qrcode`, `jsqr`).

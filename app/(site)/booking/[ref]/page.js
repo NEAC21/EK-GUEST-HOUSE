@@ -47,6 +47,13 @@ function Inner() {
           {b.checkout_url && <a className="btn gold" href={b.checkout_url}>{t('continue_payment')}</a>}
           <p className="note">{t('verifying')}</p>
         </>}
+        {b.qr_code && b.status === 'confirmed' && (
+          <div style={{ textAlign: 'center', margin: '18px 0' }}>
+            <h3 style={{ fontSize: 18, marginBottom: 10 }}>{t('qr_title')}</h3>
+            <img src={`/api/qr?code=${encodeURIComponent(b.qr_code)}`} alt={b.qr_code} width="220" height="220" style={{ margin: '0 auto', background: '#fff', padding: 8, borderRadius: 12 }} />
+            <p className="note" style={{ margin: '8px 0' }}>{b.qr_code}<br />{t('qr_help')}</p>
+            <a className="btn ghost sm" download={`checkin-${b.reference}.png`} href={`/api/qr?code=${encodeURIComponent(b.qr_code)}`}>{t('qr_save')}</a>
+          </div>)}
         {b.status === 'confirmed' && <p className="note">{t('policy', { h: settings.refund_hours, p: settings.refund_percent })}</p>}
         {b.refund_status !== 'none' && Number(b.refund_amount) > 0 && <p className="ok">{t('refund_due', { amount: Number(b.refund_amount).toLocaleString() })}</p>}
         {b.can_cancel && <button className="btn danger" onClick={cancel}>{t('cancel_booking')}</button>}
